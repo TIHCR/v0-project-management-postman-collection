@@ -43,7 +43,14 @@ class ApiClient {
     const text = await response.text();
     if (!text) return {} as T;
     
-    return JSON.parse(text);
+    const json = JSON.parse(text);
+    
+    // API returns { status: "ok", data: ... } format
+    if (json && typeof json === 'object' && 'data' in json) {
+      return json.data as T;
+    }
+    
+    return json as T;
   }
 
   async get<T>(endpoint: string): Promise<T> {
@@ -90,7 +97,14 @@ class ApiClient {
       throw new Error(error.message || 'Upload failed');
     }
 
-    return response.json();
+    const json = await response.json();
+    
+    // API returns { status: "ok", data: ... } format
+    if (json && typeof json === 'object' && 'data' in json) {
+      return json.data as T;
+    }
+    
+    return json as T;
   }
 }
 
