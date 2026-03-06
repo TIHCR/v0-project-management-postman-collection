@@ -9,12 +9,13 @@ import { toast } from 'sonner';
 export function useNotifications() {
   const queryClient = useQueryClient();
 
-  const { data: notifications = [], isLoading } = useQuery<Notification[]>({
+  const { data, isLoading } = useQuery<Notification[]>({
     queryKey: ['notifications'],
     queryFn: () => notificationService.getAll(),
     refetchInterval: 30000,
   });
 
+  const notifications = Array.isArray(data) ? data : [];
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAsReadMutation = useMutation({
