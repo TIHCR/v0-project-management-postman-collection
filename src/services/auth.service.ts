@@ -3,37 +3,22 @@ import type { AuthResponse, LoginRequest, RegisterRequest, User } from '@/types'
 
 export const authService = {
   async login(data: LoginRequest): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/auth/login', data);
-    if (response.token) {
-      localStorage.setItem('auth_token', response.token);
-    }
-    return response;
+    return apiClient.post<AuthResponse>('/auth/login', data);
   },
 
   async register(data: RegisterRequest): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/auth/register', data);
-    if (response.token) {
-      localStorage.setItem('auth_token', response.token);
-    }
-    return response;
+    return apiClient.post<AuthResponse>('/auth/register', data);
   },
 
   async getMe(): Promise<User> {
     return apiClient.get<User>('/auth/me');
   },
 
-  logout(): void {
-    localStorage.removeItem('auth_token');
-  },
-
-  getToken(): string | null {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('auth_token');
+  async logout(): Promise<void> {
+    try {
+      await apiClient.post('/auth/logout', {});
+    } catch {
+      // Ignore errors on logout
     }
-    return null;
-  },
-
-  isAuthenticated(): boolean {
-    return !!this.getToken();
   },
 };

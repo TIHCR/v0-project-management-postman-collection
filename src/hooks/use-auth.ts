@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/services';
 import { useAuthStore } from '@/store';
@@ -10,23 +10,12 @@ import { toast } from 'sonner';
 export function useAuth() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { user, isAuthenticated, login, logout, setUser } = useAuthStore();
-
-  const { isLoading: isLoadingUser } = useQuery({
-    queryKey: ['user'],
-    queryFn: async () => {
-      const userData = await authService.getMe();
-      setUser(userData);
-      return userData;
-    },
-    enabled: !!authService.getToken() && !user,
-    retry: false,
-  });
+  const { user, isAuthenticated, isLoading, setUser, logout } = useAuthStore();
 
   const loginMutation = useMutation({
     mutationFn: (data: LoginRequest) => authService.login(data),
     onSuccess: (data) => {
-      login(data.user, data.token);
+      setUser(data.user);
       toast.success('Welcome back!');
       router.push('/dashboard');
     },
@@ -38,7 +27,7 @@ export function useAuth() {
   const registerMutation = useMutation({
     mutationFn: (data: RegisterRequest) => authService.register(data),
     onSuccess: (data) => {
-      login(data.user, data.token);
+      setUser(data.user);
       toast.success('Account created successfully!');
       router.push('/dashboard');
     },
@@ -47,8 +36,8 @@ export function useAuth() {
     },
   });
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await authService.logout();
     logout();
     queryClient.clear();
     router.push('/login');
@@ -58,7 +47,7 @@ export function useAuth() {
   return {
     user,
     isAuthenticated,
-    isLoading: isLoadingUser,
+    isLoading,
     login: loginMutation.mutate,
     register: registerMutation.mutate,
     logout: handleLogout,
