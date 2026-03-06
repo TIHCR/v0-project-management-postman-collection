@@ -18,10 +18,10 @@ import {
   sortableKeyboardCoordinates,
   horizontalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueries } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import type { Column, Task } from '@/types';
-import { useBoard, useOptimisticBoard, useTasks } from '@/hooks';
+import { useBoard, useOptimisticBoard } from '@/hooks';
 import { KanbanColumn } from './kanban-column';
 import { TaskCard } from './task-card';
 import { CreateColumnModal } from './create-column-modal';
@@ -34,12 +34,26 @@ interface KanbanBoardProps {
   onTaskClick: (task: Task) => void;
 }
 
+const fetchColumnTasks = async (columnId: string): Promise<Task[]> => {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333/api'}/columns/${columnId}/tasks`,
+    {
+      headers: {
+        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+      },
+    }
+  );
+  if (!response.ok) throw new Error('Failed to fetch tasks');
+  const json = await response.json();
+  const payload = json?.data;
+  // Normaliza independente do formato: array direto ou { tasks: [] }
+  return Array.isArray(payload) ? payload : (payload?.tasks ?? payload?.items ?? []);
+};
+
 export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
-  const queryClient = useQueryClient();
   const [showCreateColumn, setShowCreateColumn] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [activeColumn, setActiveColumn] = useState<Column | null>(null);
-  const [columnTasks, setColumnTasks] = useState<Record<string, Task[]>>({});
 
   const {
     columns,
@@ -52,79 +66,52 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
 
   const { moveTaskOptimistic, reorderColumnsOptimistic } = useOptimisticBoard(boardId);
 
-  // Fetch tasks for each column
+  // useQueries busca todas as colunas em paralelo e mantém o estado sincronizado
+  const taskQueries = useQueries({
+  queries: columns.map((column) => ({
+    queryKey: ['column-tasks', column.id],
+    queryFn: async () => {
+      const result = await taskService.getByColumn(column.id);
+      return Array.isArray(result) ? result : (result?.tasks ?? result?.items ?? result?.data ?? []);
+    },
+    enabled: !!column.id,
+    staleTime: 30_000,
+  })),
+});
+
+  // Monta o mapa columnId -> Task[] a partir dos resultados — sempre arrays garantidos
+  const columnTasks: Record<string, Task[]> = columns.reduce(
+    (acc, column, index) => {
+      const result = taskQueries[index];
+      acc[column.id] = result?.data ?? [];
+      return acc;
+    },
+    {} as Record<string, Task[]>
+  );
+
+  // Estado local para feedback visual durante drag (sem afetar o cache do React Query)
+  const [localColumnTasks, setLocalColumnTasks] = useState<Record<string, Task[]>>({});
+
   useEffect(() => {
-    columns.forEach((column) => {
-      queryClient.prefetchQuery({
-        queryKey: ['column-tasks', column.id],
-        queryFn: async () => {
-          const response = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333/api'}/columns/${column.id}/tasks`,
-            {
-              headers: {
-                Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-              },
-            }
-          );
-          if (!response.ok) throw new Error('Failed to fetch tasks');
-          return response.json();
-        },
-      });
-    });
-  }, [columns, queryClient]);
-
-  // Subscribe to task data
-  useEffect(() => {
-    const tasks: Record<string, Task[]> = {};
-    columns.forEach((column) => {
-      const cachedTasks = queryClient.getQueryData<Task[]>(['column-tasks', column.id]) || [];
-      tasks[column.id] = cachedTasks;
-    });
-    setColumnTasks(tasks);
-
-    // Set up subscriptions
-    const unsubscribes = columns.map((column) =>
-      queryClient.getQueryCache().subscribe((event) => {
-        if (event.query.queryKey[0] === 'column-tasks' && event.query.queryKey[1] === column.id) {
-          const data = queryClient.getQueryData<Task[]>(['column-tasks', column.id]);
-          if (data) {
-            setColumnTasks((prev) => ({ ...prev, [column.id]: data }));
-          }
-        }
-      })
-    );
-
-    return () => {
-      unsubscribes.forEach((unsub) => unsub());
-    };
-  }, [columns, queryClient]);
+    setLocalColumnTasks(columnTasks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskQueries.map((q) => q.dataUpdatedAt).join(',')]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const { active } = event;
     const activeData = active.data.current;
-
-    if (activeData?.type === 'task') {
-      setActiveTask(activeData.task);
-    } else if (activeData?.type === 'column') {
-      setActiveColumn(activeData.column);
-    }
+    if (activeData?.type === 'task') setActiveTask(activeData.task);
+    else if (activeData?.type === 'column') setActiveColumn(activeData.column);
   }, []);
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       const { active, over } = event;
-
       if (!over) {
         setActiveTask(null);
         setActiveColumn(null);
@@ -134,36 +121,32 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
       const activeData = active.data.current;
       const overData = over.data.current;
 
-      // Handle column reordering
       if (activeData?.type === 'column' && overData?.type === 'column') {
         const activeIndex = columns.findIndex((c) => c.id === active.id);
         const overIndex = columns.findIndex((c) => c.id === over.id);
-
         if (activeIndex !== overIndex) {
           const newColumns = [...columns];
-          const [movedColumn] = newColumns.splice(activeIndex, 1);
-          newColumns.splice(overIndex, 0, movedColumn);
+          const [moved] = newColumns.splice(activeIndex, 1);
+          newColumns.splice(overIndex, 0, moved);
           await reorderColumnsOptimistic(newColumns.map((c, i) => ({ ...c, position: i })));
         }
       }
 
-      // Handle task movement
       if (activeData?.type === 'task') {
         const taskId = active.id as string;
         const task = activeData.task as Task;
-        
         let targetColumnId: string;
         let position: number;
 
         if (overData?.type === 'task') {
           const overTask = overData.task as Task;
           targetColumnId = overTask.columnId;
-          const targetTasks = columnTasks[targetColumnId] || [];
-          position = targetTasks.findIndex((t) => t.id === overTask.id);
+          position = (localColumnTasks[targetColumnId] || []).findIndex(
+            (t) => t.id === overTask.id
+          );
         } else if (overData?.type === 'column') {
           targetColumnId = over.id as string;
-          const targetTasks = columnTasks[targetColumnId] || [];
-          position = targetTasks.length;
+          position = (localColumnTasks[targetColumnId] || []).length;
         } else {
           setActiveTask(null);
           return;
@@ -177,7 +160,7 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
       setActiveTask(null);
       setActiveColumn(null);
     },
-    [columns, columnTasks, moveTaskOptimistic, reorderColumnsOptimistic]
+    [columns, localColumnTasks, moveTaskOptimistic, reorderColumnsOptimistic]
   );
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
@@ -186,7 +169,6 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
 
     const activeData = active.data.current;
     const overData = over.data.current;
-
     if (activeData?.type !== 'task') return;
 
     const task = activeData.task as Task;
@@ -201,26 +183,21 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
     }
 
     if (task.columnId !== targetColumnId) {
-      // Update local state for visual feedback
-      setColumnTasks((prev) => {
-        const newState = { ...prev };
-        // Remove from source
-        newState[task.columnId] = (newState[task.columnId] || []).filter((t) => t.id !== task.id);
-        // Add to target
-        const targetTasks = [...(newState[targetColumnId] || [])];
-        if (!targetTasks.find((t) => t.id === task.id)) {
-          targetTasks.push({ ...task, columnId: targetColumnId });
+      setLocalColumnTasks((prev) => {
+        const next = { ...prev };
+        next[task.columnId] = (next[task.columnId] || []).filter((t) => t.id !== task.id);
+        const target = [...(next[targetColumnId] || [])];
+        if (!target.find((t) => t.id === task.id)) {
+          target.push({ ...task, columnId: targetColumnId });
         }
-        newState[targetColumnId] = targetTasks;
-        return newState;
+        next[targetColumnId] = target;
+        return next;
       });
     }
   }, []);
 
   const handleCreateColumn = (data: { name: string; color: string }) => {
-    createColumn(data, {
-      onSuccess: () => setShowCreateColumn(false),
-    });
+    createColumn(data, { onSuccess: () => setShowCreateColumn(false) });
   };
 
   if (isLoadingColumns) {
@@ -254,17 +231,16 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
                   <KanbanColumn
                     key={column.id}
                     column={column}
-                    tasks={(columnTasks[column.id] || []).sort((a, b) => a.position - b.position)}
+                    tasks={(localColumnTasks[column.id] ?? []).sort(
+                      (a, b) => a.position - b.position
+                    )}
                     onTaskClick={onTaskClick}
-                    onUpdateColumn={(data) =>
-                      updateColumn({ columnId: column.id, data })
-                    }
+                    onUpdateColumn={(data) => updateColumn({ columnId: column.id, data })}
                     onDeleteColumn={() => deleteColumn(column.id)}
                   />
                 ))}
             </SortableContext>
 
-            {/* Add Column Button */}
             <div className="w-80 shrink-0">
               <Button
                 variant="outline"
@@ -280,9 +256,7 @@ export function KanbanBoard({ boardId, onTaskClick }: KanbanBoardProps) {
         </ScrollArea>
 
         <DragOverlay>
-          {activeTask && (
-            <TaskCard task={activeTask} onClick={() => {}} isDragging />
-          )}
+          {activeTask && <TaskCard task={activeTask} onClick={() => {}} isDragging />}
         </DragOverlay>
       </DndContext>
 

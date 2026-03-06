@@ -74,8 +74,8 @@ export function CreateColumnModal({
         <DialogHeader>
           <DialogTitle>Create Column</DialogTitle>
           <DialogDescription>
-            Add a new column to organize your tasks.
-          </DialogDescription>
+            Adicione uma nova coluna para organizar suas tarefas.
+                      </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)}>
           <div className="space-y-4 py-4">
@@ -98,11 +98,10 @@ export function CreateColumnModal({
                     key={color}
                     type="button"
                     onClick={() => setValue('color', color)}
-                    className={`w-8 h-8 rounded-full transition-all ${
-                      selectedColor === color
+                    className={`w-8 h-8 rounded-full transition-all ${selectedColor === color
                         ? 'ring-2 ring-offset-2 ring-primary scale-110'
                         : 'hover:scale-105'
-                    }`}
+                      }`}
                     style={{ backgroundColor: color }}
                   />
                 ))}

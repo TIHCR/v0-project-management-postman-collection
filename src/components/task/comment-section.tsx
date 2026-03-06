@@ -1,13 +1,11 @@
 'use client';
 
-import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { formatDistanceToNow } from 'date-fns';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Send, Loader2, Trash2 } from 'lucide-react';
-import type { Comment } from '@/types';
 import { taskService } from '@/services';
 import { useAuthStore } from '@/store';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,10 +15,24 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 
 const schema = z.object({
-  content: z.string().min(1, 'Comment cannot be empty'),
+  body: z.string().min(1, 'Comment cannot be empty'),  // era: content
 });
 
 type FormData = z.infer<typeof schema>;
+
+interface CommentAuthor {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+interface Comment {
+  id: string;
+  body: string;
+  editedAt: string | null;
+  createdAt: string;
+  author: CommentAuthor;
+}
 
 interface CommentSectionProps {
   taskId: string;
@@ -30,9 +42,12 @@ export function CommentSection({ taskId }: CommentSectionProps) {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
-  const { data: comments = [], isLoading } = useQuery({
+  const { data: comments = [], isLoading } = useQuery<Comment[]>({
     queryKey: ['task-comments', taskId],
-    queryFn: () => taskService.getComments(taskId),
+    queryFn: async () => {
+      const result = await taskService.getComments(taskId);
+      return result?.comments ?? result?.data ?? [];
+    },
     enabled: !!taskId,
   });
 
@@ -46,7 +61,7 @@ export function CommentSection({ taskId }: CommentSectionProps) {
   });
 
   const createMutation = useMutation({
-    mutationFn: (content: string) => taskService.createComment(taskId, { content }),
+    mutationFn: (body: string) => taskService.createComment(taskId, { body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['task-comments', taskId] });
       reset();
@@ -68,15 +83,16 @@ export function CommentSection({ taskId }: CommentSectionProps) {
   });
 
   const onSubmit = (data: FormData) => {
-    createMutation.mutate(data.content);
-  };
+    createMutation.mutate(data.body);  // era: data.content
+  }
 
-  const userInitials = user?.name
-    ?.split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2) || 'U';
+  const userInitials =
+    user?.name
+      ?.split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2) || 'U';
 
   return (
     <div className="space-y-4">
@@ -96,10 +112,10 @@ export function CommentSection({ taskId }: CommentSectionProps) {
               placeholder="Write a comment..."
               rows={2}
               className="resize-none"
-              {...register('content')}
+              {...register('body')}
             />
-            {errors.content && (
-              <p className="text-xs text-destructive">{errors.content.message}</p>
+            {errors.body && (  // era: errors.content
+              <p className="text-xs text-destructive">{errors.body.message}</p>
             )}
           </div>
         </div>
@@ -137,7 +153,7 @@ export function CommentSection({ taskId }: CommentSectionProps) {
           </p>
         ) : (
           comments.map((comment) => {
-            const initials = comment.user.name
+            const initials = comment.author.name
               .split(' ')
               .map((n) => n[0])
               .join('')
@@ -147,7 +163,7 @@ export function CommentSection({ taskId }: CommentSectionProps) {
             return (
               <div key={comment.id} className="flex gap-3 group">
                 <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarImage src={comment.user.avatarUrl} />
+                  <AvatarImage src={comment.author.avatarUrl ?? undefined} />
                   <AvatarFallback className="bg-muted text-muted-foreground text-xs">
                     {initials}
                   </AvatarFallback>
@@ -155,14 +171,14 @@ export function CommentSection({ taskId }: CommentSectionProps) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">
-                      {comment.user.name}
+                      {comment.author.name}
                     </span>
                     <span className="text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(comment.createdAt), {
                         addSuffix: true,
                       })}
                     </span>
-                    {comment.userId === user?.id && (
+                    {comment.author.id === user?.id && (
                       <Button
                         variant="ghost"
                         size="icon"
@@ -175,7 +191,7 @@ export function CommentSection({ taskId }: CommentSectionProps) {
                     )}
                   </div>
                   <p className="text-sm text-foreground mt-1 whitespace-pre-wrap">
-                    {comment.content}
+                    {comment.body}
                   </p>
                 </div>
               </div>

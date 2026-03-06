@@ -37,22 +37,25 @@ export interface Board {
   id: string;
   name: string;
   description?: string;
+  coverUrl?: string | null;
+  isArchived: boolean;
   workspaceId: string;
-  columns?: Column[];
   createdAt: string;
-  updatedAt: string;
+  _count?: {
+    columns: number;
+    members: number;
+  };
 }
 
 // Column types
-export interface Column {
+interface Column {
   id: string;
   name: string;
   color: string;
   position: number;
-  boardId: string;
-  tasks?: Task[];
-  createdAt: string;
-  updatedAt: string;
+  _count?: {
+    tasks: number;
+  };
 }
 
 // Task types

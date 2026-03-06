@@ -83,7 +83,11 @@ export function useTasks(columnId: string) {
 
   const { data: tasks = [], isLoading } = useQuery({
     queryKey: ['column-tasks', columnId],
-    queryFn: () => taskService.getByColumn(columnId),
+    queryFn: async () => {
+      const result = await taskService.getByColumn(columnId);
+      // Normaliza independente do formato que vier da API
+      return Array.isArray(result) ? result : (result?.tasks ?? result?.items ?? result?.data ?? []);
+    },
     enabled: !!columnId,
   });
 
@@ -165,7 +169,7 @@ export function useOptimisticBoard(boardId: string) {
       queryClient.setQueryData<Task[]>(['column-tasks', sourceColumnId], (old = []) => {
         const taskIndex = old.findIndex(t => t.id === taskId);
         if (taskIndex === -1) return old;
-        
+
         const newTasks = [...old];
         const [task] = newTasks.splice(taskIndex, 1);
         newTasks.splice(newPosition, 0, { ...task, position: newPosition });
@@ -181,7 +185,7 @@ export function useOptimisticBoard(boardId: string) {
       queryClient.setQueryData<Task[]>(['column-tasks', targetColumnId], (old = []) => {
         const task = previousSourceTasks?.find(t => t.id === taskId);
         if (!task) return old;
-        
+
         const newTasks = [...old];
         newTasks.splice(newPosition, 0, { ...task, columnId: targetColumnId, position: newPosition });
         return newTasks.map((t, i) => ({ ...t, position: i }));
