@@ -1,16 +1,18 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { Notification } from '@/types'; // adjust import to your actual type
+
 import { notificationService } from '@/services';
 import { toast } from 'sonner';
 
 export function useNotifications() {
   const queryClient = useQueryClient();
 
-  const { data: notifications = [], isLoading } = useQuery({
+  const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ['notifications'],
     queryFn: () => notificationService.getAll(),
-    refetchInterval: 30000, // Refetch every 30 seconds
+    refetchInterval: 30000,
   });
 
   const unreadCount = notifications.filter((n) => !n.read).length;
