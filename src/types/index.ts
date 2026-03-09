@@ -1,9 +1,31 @@
+// Permission types
+export interface Permission {
+  id: string;
+  action: string;
+  group: string;
+  description?: string;
+}
+
+export interface SystemRole {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: Permission[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserSystemRole {
+  role: SystemRole;
+}
+
 // User types
 export interface User {
   id: string;
   name: string;
   email: string;
   avatarUrl?: string;
+  systemRoles?: UserSystemRole[];
   createdAt: string;
   updatedAt: string;
 }
