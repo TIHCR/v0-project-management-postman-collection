@@ -8,10 +8,8 @@ export default function AuthLayout({
 }) {
   return (
     <QueryProvider>
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="w-full max-w-md">
-          {children}
-        </div>
+      <div className="fixed inset-0 flex">
+        {children}
       </div>
       <Toaster position="top-right" richColors />
     </QueryProvider>
